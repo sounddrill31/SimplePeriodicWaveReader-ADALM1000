@@ -1,3 +1,27 @@
+# SimplePeriodicWaveReader
+
+Reads ADALM1000 using pysmu/libsmu and detects periodic waves(only supports sine waves, square waves and triangle waves)
+
+Sample output:
+```
+>>> Periodic wave (7426.4 Hz) detected on Channel A!
+Focus on Channel A? [y/N]: y
+
+========================================
+FOCUS ANALYSIS: CHANNEL A
+Wave Type:   Square
+Frequency:   7426.38 Hz
+Peak-to-Peak: 3.960 V
+Average:     2.459 V
+Max / Min:   4.093 V / 0.133 V
+========================================
+
+Showing plot... (Close the window to continue)
+```
+
+
+---
+
 # Programming for the ADALM1000 in Python
 
 A Python library and set of tools for the Analog Devices ADALM1000 Active Learning Module.
@@ -7,20 +31,6 @@ A Python library and set of tools for the Analog Devices ADALM1000 Active Learni
 This Repository builds upon @aditya-rao-iit-m's work and tries to make it easier to templatize pysmu projects and scripts. 
 
 --- 
-
-## Template Instructions
-
-Check top right of the repo and click on `Use this template.` -> `Create a new Repository`
-
-![New repo](./assets/templatenew.png)
-
-Fill out an appropriate name for the script that is concise, and aptly communicates the purpose of the script, like `SquareWave-ADALM1000` and optionally add a short description. 
-
-![Details](./assets/templatedetails.png)
-
-Finally scroll to the bottom of the page and click submit. Make a note of the URL, you will need it very soon in the next step!
-
-Edit the [main.py](./main.py) file here to make modifications to your code.
 
 ## Windows/Linux/Mac Install Instructions
 0. Install Prefix.Dev's `pixi` as per official instructions at https://pixi.sh/latest/#installation <!-- Instructions after here will work on Windows too provided deps like python3 and git are installed-->
@@ -33,15 +43,11 @@ Edit the [main.py](./main.py) file here to make modifications to your code.
         This will quickly set up git using the same pixi tool.
 2. Prepare workspace with the command
     ```bash
-    git clone https://github.com/m1k-builds/pysmu-adalm1000-template adalm1000
-    ```  
-    or replace `m1k-builds/pysmu-adalm1000-template` with your repository that you made in the previous section. The final `adalm1000` at the end of the command tells the git tool to clone to `adalm1000` folder/directory.
-    ```bash
-    git clone https://github.com/yourusername/yourreponame adalm1000
+    git clone https://github.com/sounddrill31/SimplePeriodicWaveReader-ADALM1000 SimplePeriodicWaveReader
     ```  
     and enter the directory
     ```bash
-    cd adalm1000
+    cd SimplePeriodicWaveReader
     ```  
 3. Run the following Command to let `pixi` setup your environment
     ```bash
