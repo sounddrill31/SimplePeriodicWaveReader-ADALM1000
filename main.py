@@ -1,6 +1,7 @@
 #!/usr/bin/env python
 import sys
 import numpy as np
+import matplotlib.pyplot as plt
 from pysmu import Session, Mode
 from scipy.signal import find_peaks
 
@@ -55,14 +56,14 @@ def get_wave_type(voltages):
 
 def check_periodicity(voltages):
     """
-    Checks if the signal is periodic and returns frequency if it is.
+    Checks if the signal is periodic and returns frequency and peaks if it is.
     """
     v_max = np.max(voltages)
     v_min = np.min(voltages)
     v_pp = v_max - v_min
     
     if v_pp < V_PP_THRESHOLD:
-        return None, v_pp
+        return None, v_pp, None
     
     # Use find_peaks on centered and normalized signal
     v_avg = np.mean(voltages)
@@ -72,7 +73,7 @@ def check_periodicity(voltages):
     peaks, _ = find_peaks(v_centered, height=v_pp*0.25, distance=PEAK_DIST_MIN)
     
     if len(peaks) < 3:
-        return None, v_pp
+        return None, v_pp, None
     
     # Check consistency of peak distances
     diffs = np.diff(peaks)
@@ -81,11 +82,40 @@ def check_periodicity(voltages):
     
     if std_diff / avg_diff < CONSISTENCY_THRESHOLD:
         freq = SAMPLE_RATE / avg_diff
-        return freq, v_pp
+        return freq, v_pp, peaks
     
-    return None, v_pp
+    return None, v_pp, None
 
-def focus_analysis(chan_name, voltages, freq):
+def plot_waveform(chan_name, voltages, freq, wave_type, peaks):
+    """
+    Pop up a matplotlib window with the waveform.
+    """
+    time = np.arange(len(voltages)) / SAMPLE_RATE * 1000 # Time in ms
+    
+    plt.figure(figsize=(10, 5))
+    plt.plot(time, voltages, label=f'Ch {chan_name} Signal', color='tab:blue')
+    
+    if peaks is not None:
+        plt.plot(time[peaks], voltages[peaks], "x", label='Detected Peaks', color='tab:red')
+        
+    plt.title(f"Waveform Analysis: Channel {chan_name} ({wave_type})")
+    plt.xlabel("Time (ms)")
+    plt.ylabel("Voltage (V)")
+    plt.grid(True, linestyle='--', alpha=0.7)
+    
+    # Text info on plot
+    v_pp = np.max(voltages) - np.min(voltages)
+    v_avg = np.mean(voltages)
+    info_text = f"Freq: {freq:.2f} Hz\nVpp: {v_pp:.3f} V\nAvg: {v_avg:.3f} V"
+    plt.annotate(info_text, xy=(0.02, 0.95), xycoords='axes fraction', 
+                 bbox=dict(boxstyle="round", fc="w", alpha=0.5), verticalalignment='top')
+    
+    plt.legend(loc='upper right')
+    plt.tight_layout()
+    print("Showing plot... (Close the window to continue)")
+    plt.show()
+
+def focus_analysis(chan_name, voltages, freq, peaks):
     v_max = np.max(voltages)
     v_min = np.min(voltages)
     v_pp = v_max - v_min
@@ -100,6 +130,8 @@ def focus_analysis(chan_name, voltages, freq):
     print(f"Average:     {v_avg:.3f} V")
     print(f"Max / Min:   {v_max:.3f} V / {v_min:.3f} V")
     print("="*40 + "\n")
+    
+    plot_waveform(chan_name, voltages, freq, wave_type, peaks)
 
 def main():
     session = Session()
@@ -136,7 +168,7 @@ def main():
             
             for chan in ['A', 'B']:
                 voltages = signals[chan]
-                freq, v_pp = check_periodicity(voltages)
+                freq, v_pp, peaks = check_periodicity(voltages)
                 
                 # Update "removed" status: if signal disappears, reset 'done'
                 if v_pp < V_PP_THRESHOLD:
@@ -155,7 +187,7 @@ def main():
                         ans = 'n'
                     
                     if ans == 'y':
-                        focus_analysis(chan, voltages, freq)
+                        focus_analysis(chan, voltages, freq, peaks)
                     
                     channel_status[chan]['done'] = True
                     print("Resuming scan...")
