@@ -1,0 +1,14 @@
+[workspace]
+authors = ["sounddrill31 <84176052+sounddrill31@users.noreply.github.com>", "aditya-rao-iit-m <23f3000019@es.study.iitm.ac.in>"]
+channels = ["conda-forge"]
+name = "pysmu-adalm1000-template"
+platforms = ["win-64", "linux-64", "osx-64"]
+version = "0.1.0"
+preview = ["pixi-build"]
+
+[tasks]
+main = "python main.py"
+
+[dependencies]
+libsmu = ">=1.0.3,<2"
+python = ">=3.6,<3.7"
