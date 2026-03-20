@@ -7,9 +7,9 @@ from pysmu import Session, Mode
 # --- Configuration ---
 SAMPLE_RATE = 100000 
 V_PP_THRESHOLD = 0.05  # Lower threshold (50mV)
-SNR_THRESHOLD = 8.0    # Lower SNR for easier detection
-NUM_SAMPLES = 4096    # 40.96ms buffer
-START_BIN = 2         # ~50Hz lower limit
+SNR_THRESHOLD = 5.0    # Lower SNR for high-freq detection (ADC roll-off)
+NUM_SAMPLES = 2048    # Smaller buffer (20.48ms) for faster refresh, better for high freq
+START_BIN = 1         # Capture down to ~48Hz
 
 # --- State Management ---
 channel_status = {
@@ -87,7 +87,11 @@ def get_wave_type_advanced(voltages, harmonics):
         return "Square"
         
     # Triangle: Weak odd (m3 ~ 0.11), very low even
-    if m2 < 0.1 and m3 > 0.05 and m3 < 0.2:
+    # Note: Above 5kHz, harmonics might be attenuated, so we allow a lower m3 threshold
+    f0 = harmonics[1]['freq']
+    m3_lower_bound = 0.05 if f0 < 2000 else 0.03
+    
+    if m2 < 0.1 and m3 > m3_lower_bound and m3 < 0.2:
         return "Triangle"
         
     # Fallback: Time Domain Shape Factors (Best fit among the three)
@@ -120,8 +124,15 @@ def check_periodicity_fft(voltages):
         return None, v_pp, magnitude, freq_bins
         
     peak_idx = np.argmax(search_mag) + START_BIN
-    noise_floor = np.median(magnitude[START_BIN:])
-    snr = magnitude[peak_idx] / (noise_floor + 1e-9)
+    max_val = magnitude[peak_idx]
+    
+    # Robust noise floor: median of "non-peak" bins
+    # This prevents the signal itself from raising the noise floor
+    threshold_noise = 0.3 * max_val
+    quiet_bins = search_mag[search_mag < threshold_noise]
+    noise_floor = np.median(quiet_bins) if len(quiet_bins) > 0 else np.median(search_mag)
+    
+    snr = max_val / (noise_floor + 1e-9)
     
     if snr > SNR_THRESHOLD and v_pp > V_PP_THRESHOLD:
         refined_f, _ = interpolate_peak(magnitude, peak_idx, freq_bins)
@@ -129,34 +140,68 @@ def check_periodicity_fft(voltages):
         
     return None, v_pp, magnitude, freq_bins
 
+def find_trigger(voltages, threshold=0):
+    """
+    Finds a rising-edge zero-crossing in the centered voltage data.
+    """
+    v_centered = voltages - np.mean(voltages)
+    # Use a small window to avoid noise-induced false triggers
+    for i in range(1, len(v_centered) - 1):
+        if v_centered[i-1] <= threshold < v_centered[i]:
+            return i
+    return 0
+
 def plot_waveform_fft(chan_name, voltages, freq, wave_type, magnitude, freq_bins, harmonics):
-    time = np.arange(len(voltages)) / SAMPLE_RATE * 1000 
-    fig, (ax1, ax2) = plt.subplots(2, 1, figsize=(10, 8))
+    time_ms = np.arange(len(voltages)) / SAMPLE_RATE * 1000 
+    fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(10, 10))
     
-    # Time Domain
-    ax1.plot(time, voltages, color='tab:blue')
-    ax1.set_title(f"Waveform Analysis: Channel {chan_name} ({wave_type})")
-    ax1.set_xlabel("Time (ms)")
+    # --- 1. Global Time Domain ---
+    ax1.plot(time_ms, voltages, color='tab:blue', alpha=0.6)
+    ax1.set_title(f"Global View: Channel {chan_name} (20ms Snapshot)")
     ax1.set_ylabel("Voltage (V)")
     ax1.grid(True, alpha=0.3)
     
     v_pp, v_avg = np.max(voltages) - np.min(voltages), np.mean(voltages)
-    ax1.annotate(f"Freq: {freq:.2f} Hz\nVpp: {v_pp:.3f} V\nAvg: {v_avg:.3f} V", 
+    ax1.annotate(f"Freq: {freq:.2f} Hz\nVpp: {v_pp:.3f} V\nType: {wave_type}", 
                  xy=(0.02, 0.95), xycoords='axes fraction', 
                  bbox=dict(boxstyle="round", fc="w", alpha=0.5), verticalalignment='top')
 
-    # Freq Domain
-    show_limit = len(freq_bins) // 4
-    ax2.plot(freq_bins[:show_limit], magnitude[:show_limit], color='tab:red', alpha=0.4)
-    ax2.set_title("Frequency Spectrum (Interpolated)")
-    ax2.set_xlabel("Frequency (Hz)")
-    ax2.set_ylabel("Magnitude (V)")
+    # --- 2. Zoomed & Triggered View ---
+    trigger_idx = find_trigger(voltages)
+    
+    # Aim for ~5 cycles, or full buffer if too low freq
+    period_samples = int(SAMPLE_RATE / freq) if freq > 0 else len(voltages)
+    zoom_len = min(len(voltages) - trigger_idx, period_samples * 5)
+    
+    if zoom_len < period_samples: # If we can't get even one cycle from trigger, reset
+        trigger_idx = 0
+        zoom_len = min(len(voltages), period_samples * 5)
+        
+    zoom_v = voltages[trigger_idx : trigger_idx + zoom_len]
+    zoom_t = time_ms[trigger_idx : trigger_idx + zoom_len]
+    
+    ax2.plot(zoom_t, zoom_v, color='tab:blue', linewidth=1.5)
+    ax2.set_title(f"Zoomed View (~5 cycles, Triggered)")
+    ax2.set_xlabel("Time (ms)")
+    ax2.set_ylabel("Voltage (V)")
     ax2.grid(True, alpha=0.3)
+
+    # --- 3. Freq Domain ---
+    # Show up to 10 harmonics or at least 15kHz
+    f_limit = max(15000, min(50000, freq * 10))
+    show_limit = np.searchsorted(freq_bins, f_limit)
+    show_limit = min(show_limit, len(freq_bins) - 1)
+    
+    ax3.plot(freq_bins[:show_limit+1], magnitude[:show_limit+1], color='tab:red', alpha=0.4)
+    ax3.set_title("Frequency Spectrum (Interpolated)")
+    ax3.set_xlabel("Frequency (Hz)")
+    ax3.set_ylabel("Magnitude (V)")
+    ax3.grid(True, alpha=0.3)
     
     for n, data in harmonics.items():
         if data['freq'] < freq_bins[show_limit]:
-            ax2.plot(data['freq'], data['mag'], "x", color='black')
-            ax2.annotate(f"{n}f", xy=(data['freq'], data['mag']), 
+            ax3.plot(data['freq'], data['mag'], "x", color='black')
+            ax3.annotate(f"{n}f", xy=(data['freq'], data['mag']), 
                          xytext=(2, 2), textcoords='offset points', fontsize=8)
     
     plt.tight_layout()
